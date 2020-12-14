@@ -798,6 +798,12 @@ class UnusedImportRuleTests: XCTestCase {
     }
 }
 
+class UnusedPublicRuleTests: XCTestCase {
+    func testWithDefaultConfiguration() {
+        verifyRule(UnusedPublicRule.description)
+    }
+}
+
 class UnusedSetterValueRuleTests: XCTestCase {
     func testWithDefaultConfiguration() {
         verifyRule(UnusedSetterValueRule.description)
