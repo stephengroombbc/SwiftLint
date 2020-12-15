@@ -3,7 +3,7 @@ import SourceKittenFramework
 
 public struct UnusedPublicRule: AutomaticTestableRule, ConfigurationProviderRule, AnalyzerRule, CollectingRule {
     public struct FileUSRs: Hashable {
-        var referenced: Set<String>
+        var referenced: Set<RefercencedUSR>
         var declared: Set<DeclaredUSR>
 
         fileprivate static var empty: FileUSRs { FileUSRs(referenced: [], declared: []) }
@@ -11,7 +11,13 @@ public struct UnusedPublicRule: AutomaticTestableRule, ConfigurationProviderRule
 
     struct DeclaredUSR: Hashable {
         let usr: String
+        let module: String
         let nameOffset: ByteCount
+    }
+    
+    struct RefercencedUSR: Hashable {
+        let usr: String
+        let module: String
     }
     
     public var configuration = UnusedPublicConfiguration(severity: .error)
@@ -55,7 +61,7 @@ public struct UnusedPublicRule: AutomaticTestableRule, ConfigurationProviderRule
         }
 
         return FileUSRs(
-            referenced: file.referencedUSRs(index: index),
+            referenced: file.referencedUSRs(index: index, compilerArguments: compilerArguments),
             declared: file.declaredUSRs(index: index,
                                         editorOpen: editorOpen,
                                         compilerArguments: compilerArguments)        )
@@ -73,14 +79,15 @@ public struct UnusedPublicRule: AutomaticTestableRule, ConfigurationProviderRule
             }
     }
 
-    private func violationOffsets(declaredUSRs: Set<DeclaredUSR>, allReferencedUSRs: Set<String>) -> [ByteCount] {
+    private func violationOffsets(declaredUSRs: Set<DeclaredUSR>, allReferencedUSRs: Set<RefercencedUSR>) -> [ByteCount] {
         // Unused declarations are:
         // 1. all declarations
         // 2. minus all references
-        return declaredUSRs
+        return []
+        /*declaredUSRs
             .filter { !allReferencedUSRs.contains($0.usr) }
             .map { $0.nameOffset }
-            .sorted()
+            .sorted()*/
     }
 }
 
@@ -96,12 +103,12 @@ private extension SwiftLintFile {
             .map(SourceKittenDictionary.init)
     }
 
-    func referencedUSRs(index: SourceKittenDictionary) -> Set<String> {
-        return Set(index.traverseEntities { entity -> String? in
+    func referencedUSRs(index: SourceKittenDictionary, compilerArguments: [String]) -> Set<UnusedPublicRule.RefercencedUSR> {
+        return Set(index.traverseEntities { entity -> UnusedPublicRule.RefercencedUSR? in
             if let usr = entity.usr,
                 let kind = entity.kind,
                 kind.starts(with: "source.lang.swift.ref") {
-                return usr
+                return UnusedPublicRule.RefercencedUSR(usr: usr, module: moduleName(compilerArguments: compilerArguments))
             }
 
             return nil
@@ -155,6 +162,7 @@ private extension SwiftLintFile {
             }
         }
 
+        let moduleName = self.moduleName(compilerArguments: compilerArguments)
         let cursorInfo = self.cursorInfo(at: nameOffset, compilerArguments: compilerArguments)
 
         if let annotatedDecl = cursorInfo?.annotatedDeclaration,
@@ -176,7 +184,14 @@ private extension SwiftLintFile {
             return nil
         }
 
-        return .init(usr: usr, nameOffset: nameOffset)
+        return .init(usr: usr, module: moduleName, nameOffset: nameOffset)
+    }
+    
+    private func moduleName(compilerArguments: [String]) -> String {
+        guard let moduleNameIndex = compilerArguments.firstIndex(of: "-module-name")?.advanced(by: 1)  else {
+            return ""
+        }
+        return compilerArguments[moduleNameIndex]
     }
 
     func cursorInfo(at byteOffset: ByteCount, compilerArguments: [String]) -> SourceKittenDictionary? {
