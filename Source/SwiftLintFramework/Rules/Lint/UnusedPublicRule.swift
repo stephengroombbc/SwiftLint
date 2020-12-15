@@ -62,7 +62,7 @@ public struct UnusedPublicRule: AutomaticTestableRule, ConfigurationProviderRule
 
         return FileUSRs(
             referenced: file.referencedUSRs(index: index, compilerArguments: compilerArguments),
-            declared: file.declaredUSRs(index: index,
+            declared: file.declaredPublicUSRs(index: index,
                                         editorOpen: editorOpen,
                                         compilerArguments: compilerArguments)        )
     }
@@ -82,12 +82,14 @@ public struct UnusedPublicRule: AutomaticTestableRule, ConfigurationProviderRule
     private func violationOffsets(declaredUSRs: Set<DeclaredUSR>, allReferencedUSRs: Set<RefercencedUSR>) -> [ByteCount] {
         // Unused declarations are:
         // 1. all declarations
-        // 2. minus all references
-        return []
-        /*declaredUSRs
-            .filter { !allReferencedUSRs.contains($0.usr) }
+        // 2. minus all references whose module are not equal to the declaration
+        return declaredUSRs
+            .filter { declaredUSR in
+                !allReferencedUSRs.contains(where: {
+                                            $0.usr == declaredUSR.usr && $0.module != declaredUSR.module
+                }) }
             .map { $0.nameOffset }
-            .sorted()*/
+            .sorted()
     }
 }
 
@@ -115,7 +117,7 @@ private extension SwiftLintFile {
         })
     }
 
-    func declaredUSRs(index: SourceKittenDictionary, editorOpen: SourceKittenDictionary,
+    func declaredPublicUSRs(index: SourceKittenDictionary, editorOpen: SourceKittenDictionary,
                       compilerArguments: [String])
         -> Set<UnusedPublicRule.DeclaredUSR> {
         return Set(index.traverseEntities { indexEntity in
@@ -143,6 +145,10 @@ private extension SwiftLintFile {
 
         let nameOffset = stringView.byteOffset(forLine: line, column: column)
 
+        if ![.public, .open].contains(editorOpen.aclAtOffset(nameOffset)) {
+            return nil
+        }
+        
         // Skip CodingKeys as they are used for Codable generation
         if kind == .enum,
             indexEntity.name == "CodingKeys",
