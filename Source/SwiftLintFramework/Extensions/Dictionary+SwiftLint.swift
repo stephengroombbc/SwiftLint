@@ -152,9 +152,15 @@ public struct SourceKittenDictionary {
         return elements.compactMap { $0 as? [String: SourceKitRepresentable] }
         .map(SourceKittenDictionary.init)
     }
-
+    
     var entities: [SourceKittenDictionary] {
         let entities = value["key.entities"] as? [SourceKitRepresentable] ?? []
+        return entities.compactMap { $0 as? [String: SourceKitRepresentable] }
+            .map(SourceKittenDictionary.init)
+    }
+    
+    var related: [SourceKittenDictionary] {
+        let entities = value["key.related"] as? [SourceKitRepresentable] ?? []
         return entities.compactMap { $0 as? [String: SourceKitRepresentable] }
             .map(SourceKittenDictionary.init)
     }

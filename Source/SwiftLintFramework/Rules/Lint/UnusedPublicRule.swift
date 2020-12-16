@@ -120,12 +120,33 @@ private extension SwiftLintFile {
     func declaredPublicUSRs(index: SourceKittenDictionary, editorOpen: SourceKittenDictionary,
                       compilerArguments: [String])
         -> Set<UnusedPublicRule.DeclaredUSR> {
-        return Set(index.traverseEntities { indexEntity in
-            self.declaredUSR(indexEntity: indexEntity, editorOpen: editorOpen, compilerArguments: compilerArguments)
+        var publicUSRs = Set(index.traverseEntities { indexEntity in
+            self.declaredPublicUSR(indexEntity: indexEntity, editorOpen: editorOpen, compilerArguments: compilerArguments)
         })
+        //Filter out public types which are referenced by another public declaration
+        _ = index.traverseEntities { indexEntity in
+            //TODO: Duplication
+            let entities = indexEntity.entities
+            guard !entities.isEmpty,
+                  let line = indexEntity.line.map(Int.init),
+                  let column = indexEntity.column.map(Int.init),
+                  let access = editorOpen.aclAtOffset(stringView.byteOffset(forLine: line, column: column)),
+                  [.public, .open].contains(access) else { return }
+            let types = ["protocol", "struct", "class", "enum"]
+            var referencedUSRs: [String?] = []
+            entities.forEach { relatedEntity in
+                guard let stringKind = relatedEntity.kind,
+                      stringKind.starts(with: "source.lang.swift.ref."),
+                      types.contains(where: stringKind.contains) else { return }
+                referencedUSRs.append(relatedEntity.usr)
+            }
+            
+            publicUSRs = publicUSRs.filter { !referencedUSRs.contains($0.usr) }
+        }
+        return publicUSRs
     }
 
-    func declaredUSR(indexEntity: SourceKittenDictionary, editorOpen: SourceKittenDictionary,
+    private func declaredPublicUSR(indexEntity: SourceKittenDictionary, editorOpen: SourceKittenDictionary,
                      compilerArguments: [String]) -> UnusedPublicRule.DeclaredUSR? {
         guard let stringKind = indexEntity.kind,
               stringKind.starts(with: "source.lang.swift.decl."),
