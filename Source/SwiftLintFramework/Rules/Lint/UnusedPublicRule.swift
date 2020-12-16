@@ -64,7 +64,8 @@ public struct UnusedPublicRule: AutomaticTestableRule, ConfigurationProviderRule
             referenced: file.referencedUSRs(index: index, compilerArguments: compilerArguments),
             declared: file.declaredPublicUSRs(index: index,
                                         editorOpen: editorOpen,
-                                        compilerArguments: compilerArguments)        )
+                                        compilerArguments: compilerArguments)
+        )
     }
 
     public func validate(file: SwiftLintFile, collectedInfo: [SwiftLintFile: UnusedPublicRule.FileUSRs],
@@ -120,12 +121,16 @@ private extension SwiftLintFile {
     func declaredPublicUSRs(index: SourceKittenDictionary, editorOpen: SourceKittenDictionary,
                       compilerArguments: [String])
         -> Set<UnusedPublicRule.DeclaredUSR> {
-        var publicUSRs = Set(index.traverseEntities { indexEntity in
+        let publicUSRs = Set(index.traverseEntities { indexEntity in
             self.declaredPublicUSR(indexEntity: indexEntity, editorOpen: editorOpen, compilerArguments: compilerArguments)
         })
+        return removeExternallyExposedPublicTypes(from: publicUSRs, index: index, editorOpen: editorOpen)
+    }
+    
+    private func removeExternallyExposedPublicTypes(from declarations: Set<UnusedPublicRule.DeclaredUSR>, index: SourceKittenDictionary, editorOpen: SourceKittenDictionary) -> Set<UnusedPublicRule.DeclaredUSR> {
+        var declarations = declarations
         //Filter out public types which are referenced by another public declaration
         _ = index.traverseEntities { indexEntity in
-            //TODO: Duplication
             let entities = indexEntity.entities
             guard !entities.isEmpty,
                   let line = indexEntity.line.map(Int.init),
@@ -141,9 +146,9 @@ private extension SwiftLintFile {
                 referencedUSRs.append(relatedEntity.usr)
             }
             
-            publicUSRs = publicUSRs.filter { !referencedUSRs.contains($0.usr) }
+            declarations = declarations.filter { !referencedUSRs.contains($0.usr) }
         }
-        return publicUSRs
+        return declarations
     }
 
     private func declaredPublicUSR(indexEntity: SourceKittenDictionary, editorOpen: SourceKittenDictionary,
