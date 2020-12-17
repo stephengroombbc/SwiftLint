@@ -6,9 +6,8 @@ struct CompilerArgumentsExtractor {
         var compilerInvocations = [String]()
         compilerLogs.enumerateLines { line, _ in
             if let swiftcIndex = line.range(of: "swiftc ")?.upperBound, line.contains(" -module-name ") {
-                let invocation = String(line[swiftcIndex...])
-                    .split(usingRegex: "(?<!\\\\) ")
-                    .map({ $0.replacingOccurrences(of: "\\", with: "") })
+                let invocation = line[swiftcIndex...]
+                    .components(separatedBy: " ")
                     .expandingResponseFiles
                     .joined(separator: " ")
                 compilerInvocations.append(invocation)
@@ -134,22 +133,11 @@ private extension Array where Element == String {
                 return [arg]
             }
             let responseFile = String(arg.dropFirst())
-            let map = (try? String(contentsOf: URL(fileURLWithPath: responseFile))).flatMap {
+            return (try? String(contentsOf: URL(fileURLWithPath: responseFile))).flatMap {
                 $0.trimmingCharacters(in: .newlines)
                   .components(separatedBy: "\n")
                   .expandingResponseFiles
             } ?? [arg]
-            return map
         }
-    }
-}
-
-private extension String {
-    func split(usingRegex pattern: String) -> [String] {
-        //### Crashes when you pass invalid `pattern`
-        let regex = try! NSRegularExpression(pattern: pattern)
-        let matches = regex.matches(in: self, range: NSRange(0..<utf16.count))
-        let ranges = [startIndex..<startIndex] + matches.map{Range($0.range, in: self)!} + [endIndex..<endIndex]
-        return (0...matches.count).map {String(self[ranges[$0].upperBound..<ranges[$0+1].lowerBound])}
     }
 }
