@@ -13,6 +13,7 @@ public struct UnusedPublicRule: AutomaticTestableRule, ConfigurationProviderRule
         let usr: String
         let module: String
         let nameOffset: ByteCount
+        let enclosingUSR: String?
     }
     
     struct RefercencedUSR: Hashable {
@@ -84,13 +85,26 @@ public struct UnusedPublicRule: AutomaticTestableRule, ConfigurationProviderRule
         // Unused declarations are:
         // 1. all declarations
         // 2. minus all references whose module are not equal to the declaration
+        // 3. minus all references who are overridden(class) or implemented(protocol) in a different module
         return declaredUSRs
             .filter { declaredUSR in
                 !allReferencedUSRs.contains(where: {
                                             $0.usr == declaredUSR.usr && $0.module != declaredUSR.module
                 }) }
+            .filter { declaredUSR in
+                !isOverridenOrImplementedExternally(declaredUSR, allReferencedUSRs: allReferencedUSRs)
+            }
             .map { $0.nameOffset }
             .sorted()
+    }
+    
+    private func isOverridenOrImplementedExternally(_ declaredUSR: DeclaredUSR, allReferencedUSRs: Set<RefercencedUSR>) -> Bool {
+        guard let enclosingUSR = declaredUSR.enclosingUSR else {
+            return false
+        }
+        return allReferencedUSRs.contains(where: {
+            $0.usr == enclosingUSR && $0.module != declaredUSR.module
+        })
     }
 }
 
@@ -216,7 +230,20 @@ private extension SwiftLintFile {
             return nil
         }
 
-        return .init(usr: usr, module: moduleName, nameOffset: nameOffset)
+        //TODO: Optimise this
+        //      We probably don't need to do this for every entity.  We could create a list of all protocols once which we pass to this so we're searching a smaller list.
+        //      We could also restrict the types we search for to those which are viable on a protocol (functions & variables)
+        let enclosingUSR = editorOpen.traverseBreadthFirst { dictionary -> [SourceKittenDictionary]? in
+            //TODO: This traversal is wrong.  dictionary.usr is nil, dictionary.entities is nil.  Maybe we need to collect this earlier and pass it in as the comment above aludes to
+            if dictionary.entities.contains(where: { $0.usr == usr }) {
+                
+                if  [.protocol, .class].contains(dictionary.declarationKind) {
+                return [dictionary]
+            }
+            }
+            return nil
+        }.first?.usr
+        return .init(usr: usr, module: moduleName, nameOffset: nameOffset, enclosingUSR: enclosingUSR)
     }
     
     private func moduleName(compilerArguments: [String]) -> String {
