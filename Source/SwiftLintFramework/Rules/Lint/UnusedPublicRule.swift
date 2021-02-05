@@ -1,6 +1,10 @@
 import Foundation
 import SourceKittenFramework
 
+//TODO: Unit test
+//      Reduce duplication between this and copied unused decleration rule
+//      Remove unused code copied from unused decleration rule
+
 public struct UnusedPublicRule: AutomaticTestableRule, ConfigurationProviderRule, AnalyzerRule, CollectingRule {
     public struct FileUSRs: Hashable {
         var referenced: Set<RefercencedUSR>
@@ -86,6 +90,9 @@ public struct UnusedPublicRule: AutomaticTestableRule, ConfigurationProviderRule
         // 1. all declarations
         // 2. minus all references whose module are not equal to the declaration
         // 3. minus all references who are overridden(class) or implemented(protocol) in a different module
+        
+        //TODO: 3. above is too naïve—It assumes if an open class is overridden then all of its open methods are 'used' externally.
+        //      It could probably be smarter and deal with class methods on an individual basis and mark them as unused if they're not overridden in the subclass(es)
         return declaredUSRs
             .filter { declaredUSR in
                 !allReferencedUSRs.contains(where: {
@@ -135,10 +142,23 @@ private extension SwiftLintFile {
     func declaredPublicUSRs(index: SourceKittenDictionary, editorOpen: SourceKittenDictionary,
                       compilerArguments: [String])
         -> Set<UnusedPublicRule.DeclaredUSR> {
+        let publicProtocolsAndClasses = index.traverseEntities(traverseBlock: { indexEntity in
+            self.publicProtocolsAndClasses(indexEntity: indexEntity, editorOpen: editorOpen)
+        })
         let publicUSRs = Set(index.traverseEntities { indexEntity in
-            self.declaredPublicUSR(indexEntity: indexEntity, editorOpen: editorOpen, compilerArguments: compilerArguments)
+            self.declaredPublicUSR(indexEntity: indexEntity, editorOpen: editorOpen, publicProtocolsAndClasses: publicProtocolsAndClasses, compilerArguments: compilerArguments)
         })
         return removeExternallyExposedPublicTypes(from: publicUSRs, index: index, editorOpen: editorOpen)
+    }
+    
+    private func publicProtocolsAndClasses(indexEntity: SourceKittenDictionary, editorOpen: SourceKittenDictionary) -> SourceKittenDictionary? {
+        //TODO: Access duplication.  Refactor into method
+        guard [.protocol, .class].contains(indexEntity.declarationKind),
+              let line = indexEntity.line.map(Int.init),
+              let column = indexEntity.column.map(Int.init),
+              let access = editorOpen.aclAtOffset(stringView.byteOffset(forLine: line, column: column)),
+              [.public, .open].contains(access) else { return  nil }
+            return indexEntity
     }
     
     private func removeExternallyExposedPublicTypes(from declarations: Set<UnusedPublicRule.DeclaredUSR>, index: SourceKittenDictionary, editorOpen: SourceKittenDictionary) -> Set<UnusedPublicRule.DeclaredUSR> {
@@ -165,7 +185,7 @@ private extension SwiftLintFile {
         return declarations
     }
 
-    private func declaredPublicUSR(indexEntity: SourceKittenDictionary, editorOpen: SourceKittenDictionary,
+    private func declaredPublicUSR(indexEntity: SourceKittenDictionary, editorOpen: SourceKittenDictionary, publicProtocolsAndClasses: [SourceKittenDictionary],
                      compilerArguments: [String]) -> UnusedPublicRule.DeclaredUSR? {
         guard let stringKind = indexEntity.kind,
               stringKind.starts(with: "source.lang.swift.decl."),
@@ -230,19 +250,10 @@ private extension SwiftLintFile {
             return nil
         }
 
-        //TODO: Optimise this
-        //      We probably don't need to do this for every entity.  We could create a list of all protocols once which we pass to this so we're searching a smaller list.
-        //      We could also restrict the types we search for to those which are viable on a protocol (functions & variables)
-        let enclosingUSR = editorOpen.traverseBreadthFirst { dictionary -> [SourceKittenDictionary]? in
-            //TODO: This traversal is wrong.  dictionary.usr is nil, dictionary.entities is nil.  Maybe we need to collect this earlier and pass it in as the comment above aludes to
-            if dictionary.entities.contains(where: { $0.usr == usr }) {
-                
-                if  [.protocol, .class].contains(dictionary.declarationKind) {
-                return [dictionary]
-            }
-            }
-            return nil
-        }.first?.usr
+       
+        let enclosingUSR = publicProtocolsAndClasses.first { indexEntity in
+            indexEntity.entities.contains { $0.usr == usr}
+        }?.usr
         return .init(usr: usr, module: moduleName, nameOffset: nameOffset, enclosingUSR: enclosingUSR)
     }
     
