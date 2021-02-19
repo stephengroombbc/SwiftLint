@@ -5,6 +5,8 @@ import SourceKittenFramework
 //      Reduce duplication between this and copied unused decleration rule
 //      Remove unused code copied from unused decleration rule
 
+
+//TODO: Refactor source.lang.swift.ref detection into a method
 public struct UnusedPublicRule: AutomaticTestableRule, ConfigurationProviderRule, AnalyzerRule, CollectingRule {
     public struct FileUSRs: Hashable {
         var referenced: Set<RefercencedUSR>
@@ -161,23 +163,36 @@ private extension SwiftLintFile {
             return indexEntity
     }
     
+    //TODO: WIP Trying to resolve false positives.
+    //      Some progress was made in realising that typealiases are only referenced as source.lang.swift.ref with no child entities.
+    //      It's not possible to get their access control though so the guard [.public, .open] fails before any special cases can be hit.
+    //      I think this means we need to traverse depth first (perhaps via recursion), being more intelligent to determine what is public and collecting any USRs on our way down.
+    //      This will probably be more efficient too.
+    //      Something like: Start at top level.  If it's private/internal, abort.  If it's got children, continue and report everything mentioned inside a protocol, only things explititly named as public within classes and structs
     private func removeExternallyExposedPublicTypes(from declarations: Set<UnusedPublicRule.DeclaredUSR>, index: SourceKittenDictionary, editorOpen: SourceKittenDictionary) -> Set<UnusedPublicRule.DeclaredUSR> {
         var declarations = declarations
         //Filter out public types which are referenced by another public declaration
         _ = index.traverseEntities { indexEntity in
-            let entities = indexEntity.entities
-            guard !entities.isEmpty,
-                  let line = indexEntity.line.map(Int.init),
+            print(indexEntity.usr ?? "")
+            guard let line = indexEntity.line.map(Int.init),
                   let column = indexEntity.column.map(Int.init),
                   let access = editorOpen.aclAtOffset(stringView.byteOffset(forLine: line, column: column)),
                   [.public, .open].contains(access) else { return }
-            let types = ["protocol", "struct", "class", "enum"]
             var referencedUSRs: [String?] = []
-            entities.forEach { relatedEntity in
-                guard let stringKind = relatedEntity.kind,
-                      stringKind.starts(with: "source.lang.swift.ref."),
-                      types.contains(where: stringKind.contains) else { return }
-                referencedUSRs.append(relatedEntity.usr)
+            
+            //References don't have child entities.  Add their USRs directly
+            if let kind = indexEntity.kind,
+               kind.starts(with: "source.lang.swift.ref"),
+               let usr = indexEntity.usr {
+                referencedUSRs.append(usr)
+            } else { //Otherwise add the usrs from the entities array
+                let types: [SwiftDeclarationKind] = [.protocol, .struct, .class, .enum, .typealias]
+                let entities = indexEntity.entities
+                entities.forEach { relatedEntity in
+                    guard let kind = relatedEntity.declarationKind,
+                          types.contains(kind) else { return }
+                    referencedUSRs.append(relatedEntity.usr)
+                }
             }
             
             declarations = declarations.filter { !referencedUSRs.contains($0.usr) }
