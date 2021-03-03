@@ -1,4 +1,3 @@
-import Commandant
 import Foundation
 import SourceKittenFramework
 import SwiftLintFramework
@@ -7,17 +6,17 @@ typealias File = String
 typealias Arguments = [String]
 
 enum CompilerInvocations {
-    case buildLog(compilerInvocations: [String])
+    case buildLog(compilerInvocations: [[String]])
     case compilationDatabase(compileCommands: [File: Arguments])
 
     func arguments(forFile path: String?) -> [String] {
         return path.flatMap { path in
             switch self {
             case let .buildLog(compilerInvocations):
-                return CompilerArgumentsExtractor
-                    .compilerArgumentsForFile(path, compilerInvocations: compilerInvocations)
+                return compilerInvocations.first(where: { $0.contains(path) })
             case let .compilationDatabase(compileCommands):
-                return compileCommands[path]
+                return compileCommands[path] ??
+                    compileCommands[path.path(relativeTo: FileManager.default.currentDirectoryPath)]
             }
         } ?? []
     }
@@ -96,28 +95,30 @@ struct LintableFilesVisitor {
                        cache: LinterCache?,
                        allowZeroLintableFiles: Bool,
                        block: @escaping (CollectedLinter) -> Void)
-        -> Result<LintableFilesVisitor, CommandantError<()>> {
-        let compilerInvocations: CompilerInvocations?
-        if options.mode == .lint {
-            compilerInvocations = nil
-        } else {
-            switch loadCompilerInvocations(options) {
-            case let .success(invocations):
-                compilerInvocations = invocations
-            case let .failure(error):
-                return .failure(error)
+        -> Result<LintableFilesVisitor, SwiftLintError> {
+        Signposts.record(name: "LintableFilesVisitor.Create") {
+            let compilerInvocations: CompilerInvocations?
+            if options.mode == .lint {
+                compilerInvocations = nil
+            } else {
+                switch loadCompilerInvocations(options) {
+                case let .success(invocations):
+                    compilerInvocations = invocations
+                case let .failure(error):
+                    return .failure(error)
+                }
             }
-        }
 
-        let visitor = LintableFilesVisitor(paths: options.paths, action: options.verb.bridge().capitalized,
-                                           useSTDIN: options.useSTDIN, quiet: options.quiet,
-                                           useScriptInputFiles: options.useScriptInputFiles,
-                                           forceExclude: options.forceExclude,
-                                           useExcludingByPrefix: options.useExcludingByPrefix,
-                                           cache: cache,
-                                           compilerInvocations: compilerInvocations,
-                                           allowZeroLintableFiles: allowZeroLintableFiles, block: block)
-        return .success(visitor)
+            let visitor = LintableFilesVisitor(paths: options.paths, action: options.verb.bridge().capitalized,
+                                               useSTDIN: options.useSTDIN, quiet: options.quiet,
+                                               useScriptInputFiles: options.useScriptInputFiles,
+                                               forceExclude: options.forceExclude,
+                                               useExcludingByPrefix: options.useExcludingByPrefix,
+                                               cache: cache,
+                                               compilerInvocations: compilerInvocations,
+                                               allowZeroLintableFiles: allowZeroLintableFiles, block: block)
+            return .success(visitor)
+        }
     }
 
     func shouldSkipFile(atPath path: String?) -> Bool {
@@ -141,9 +142,8 @@ struct LintableFilesVisitor {
     }
 
     private static func loadCompilerInvocations(_ options: LintOrAnalyzeOptions)
-        -> Result<CompilerInvocations, CommandantError<()>> {
-        if !options.compilerLogPath.isEmpty {
-            let path = options.compilerLogPath
+        -> Result<CompilerInvocations, SwiftLintError> {
+        if let path = options.compilerLogPath {
             guard let compilerInvocations = self.loadLogCompilerInvocations(path) else {
                 return .failure(
                     .usageError(description: "Could not read compiler log at path: '\(path)'")
@@ -151,24 +151,21 @@ struct LintableFilesVisitor {
             }
 
             return .success(.buildLog(compilerInvocations: compilerInvocations))
-        } else if !options.compileCommands.isEmpty {
-            let path = options.compileCommands
+        } else if let path = options.compileCommands {
             switch self.loadCompileCommands(path) {
             case .success(let compileCommands):
                 return .success(.compilationDatabase(compileCommands: compileCommands))
             case .failure(let error):
-                return .failure(
-                    .usageError(
-                        description: "Could not read compilation database at path: '\(path)' \(error.description)"
-                    )
-                )
+                return .failure(.usageError(
+                    description: "Could not read compilation database at path: '\(path)' \(error.localizedDescription)"
+                ))
             }
         }
 
         return .failure(.usageError(description: "Could not read compiler invocations"))
     }
 
-    private static func loadLogCompilerInvocations(_ path: String) -> [String]? {
+    private static func loadLogCompilerInvocations(_ path: String) -> [[String]]? {
         if let data = FileManager.default.contents(atPath: path),
             let logContents = String(data: data, encoding: .utf8) {
             if logContents.isEmpty {
@@ -200,7 +197,7 @@ struct LintableFilesVisitor {
                 return .failure(.malformedFile(path, index))
             }
 
-            guard var arguments = entry["arguments"] as? [String] else {
+            guard let arguments = entry["arguments"] as? [String] else {
                 return .failure(.malformedArguments(path, index))
             }
 
@@ -208,26 +205,21 @@ struct LintableFilesVisitor {
                 return .failure(.missingFileInArguments(path, index, arguments))
             }
 
-            // Compilation databases include the compiler, but it's left out when sending to SourceKit.
-            if arguments.first == "swiftc" {
-                arguments.removeFirst()
-            }
-
-            commands[file] = CompilerArgumentsExtractor.filterCompilerArguments(arguments)
+            commands[file] = arguments.filteringCompilerArguments
         }
 
         return .success(commands)
     }
 }
 
-private enum CompileCommandsLoadError: Error {
+private enum CompileCommandsLoadError: LocalizedError {
     case nonExistentFile(String)
     case malformedCommands(String)
     case malformedFile(String, Int)
     case malformedArguments(String, Int)
     case missingFileInArguments(String, Int, [String])
 
-    var description: String {
+    var errorDescription: String? {
         switch self {
         case let .nonExistentFile(path):
             return "Could not read compile commands file at '\(path)'"

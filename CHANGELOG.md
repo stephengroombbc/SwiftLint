@@ -2,6 +2,150 @@
 
 #### Breaking
 
+* The command line syntax has slightly changed due to migrating from the
+  Commandant command line parsing library to swift-argument-parser.
+  For the most part the breaking changes are all to make the syntax more
+  unix compliant and intuitive to use. For example, commands such as
+  `swiftlint --help` or `swiftlint -h` now work as expected.
+  The help output from various commands has greatly improved as well.
+  Notably: `swiftlint autocorrect` was removed in favor of
+  `swiftlint --fix`.
+  Previous commands should continue to work temporarily to help with the
+  transition. Please let us know if there's a command that no longer
+  works and we'll attempt to add a bridge to help with its transition.  
+  [JP Simard](https://github.com/jpsim)
+
+* Configuration files now consistently have their `included`/`excluded`
+  relative file paths applied relative to their location in the file
+  system. Previously the root configuration file applied these relative
+  to the current working directory, but nested configurations applied
+  these to their location in the file system.  
+  [Frederick Pietschmann](https://github.com/fredpi)
+  [JP Simard](https://github.com/jpsim)
+
+* The `discarded_notification_center_observer` is now opt-in due to some
+  difficult to resolve false positives, such as
+  [#3498](https://github.com/realm/SwiftLint/issues/3498).  
+  [JP Simard](https://github.com/jpsim)
+
+#### Experimental
+
+* None.
+
+#### Enhancements
+
+* Added `allows_single_line` option in `multiline_parameters` rule
+  configuration. Defaults to `true`. This enforces parameters in a method
+  with multiple parameters to always be in different lines.  
+  [Otavio Cordeiro](https://github.com/otaviocc)
+
+* Support relative paths in compilation databases for SwiftLint analyzer
+  rules.  
+  [JP Simard](https://github.com/jpsim)
+
+* Add opt-in rule `discouraged_assert` to encourage the use of
+  `assertionFailure()` and/or `preconditionFailure()` over
+  `assert(false)`.  
+  [Otavio Cordeiro](https://github.com/otaviocc)
+
+* Adds `balanced_xctest_lifecycle` opt-in rule to enforce balanced `setUp`
+  and `tearDown` methods in a test class.  
+  [Otavio Cordeiro](https://github.com/otaviocc)
+  [#3452](https://github.com/realm/SwiftLint/issues/3452)
+
+* Tweak the auto-correction result console output for clarity.  
+  [mokagio](https://github.com/mokagio)
+  [#3522](https://github.com/realm/SwiftLint/issues/3522)
+
+* Allow configuring related USRs to skip in UnusedDeclarationRule by
+  specifying a list of USRs in the `related_usrs_to_skip` key.
+  For example you might have custom source tooling that does something
+  with types conforming to a procotol even if that type is never
+  explicitly referenced by other code.  
+  [JP Simard](https://github.com/jpsim)
+
+* Make `strong_iboutlet` rule correctable.  
+  [MaxHaertwig](https://github.com/maxhaertwig)
+
+* Add `legacy_objc_type` opt-in rule to warn against using
+  bridged Objective-C reference types instead of Swift value types.  
+  [Blake](https://github.com/72A12F4E)
+  [#2758](https://github.com/realm/SwiftLint/issues/2758)
+
+* Support Swift Playground control comments in the `comment_spacing`
+  rule.  
+  [Thomas Goyne](https://github.com/tgoyne)
+
+* [Internal] Integrate OS Signposts to help profile SwiftLint
+  performance.  
+  [jpsim](https://github.com/jpsim)
+
+* Update CodeClimateReporter to produce relative paths.  
+  [bmwalters](https://github.com/bmwalters)
+
+* Add Bool violation reporting in `redundant_type_annotation`.  
+  [Artem Garmash](https://github.com/agarmash)
+  [#3423](https://github.com/realm/SwiftLint/issues/3423)
+
+* Add a new `capture_variable` analyzer rule to warn about listing a
+  non-constant (`var`) variable in a closure's capture list. This
+  captures the variable's value at closure creation time instead of
+  closure call time, which may be unexpected.  
+  [Laszlo Kustra](https://github.com/kustra)
+
+* Log references to a specified module when running the `unused_import`
+  by setting the `SWIFTLINT_LOG_MODULE_USAGE=<module-name>` environment
+  variable when running analyze.  
+  [jpsim](https://github.com/jpsim)
+
+* Add opt-in rule `private_subject` rule which warns against
+  public Combine subjects.  
+  [Otavio Cordeiro](https://github.com/otaviocc)
+
+#### Bug Fixes
+
+* Fix `custom_rules` merging when the parent configuration is based on
+  `only_rules`.  
+  [Frederick Pietschmann](https://github.com/fredpi)
+  [#3468](https://github.com/realm/SwiftLint/issues/3468)
+
+* Fix misleading warnings about rules defined in the `custom_rules` not
+  being available (when using multiple configurations).  
+  [Frederick Pietschmann](https://github.com/fredpi)
+  [#3472](https://github.com/realm/SwiftLint/issues/3472)
+  
+* Fix bug that prevented the reconfiguration of a custom rule in a child
+  config.  
+  [Frederick Pietschmann](https://github.com/fredpi)
+  [#3477](https://github.com/realm/SwiftLint/issues/3477)
+  
+* Fix typos in configuration options for `file_name` rule.  
+  [advantis](https://github.com/advantis)
+  
+* Fix issue that prevented the inclusion of a configuration file from a
+  parent folder.  
+  [Frederick Pietschmann](https://github.com/fredpi)
+  [#3485](https://github.com/realm/SwiftLint/issues/3485)
+
+* Fix violation location and misplaced corrections for some function
+  references in `explicit_self` rule.  
+  [JP Simard](https://github.com/jpsim)
+
+* Fix false positives with result builders in `unused_declaration`.  
+  [JP Simard](https://github.com/jpsim)
+
+* Find more unused declarations in `unused_declaration`.  
+  [JP Simard](https://github.com/jpsim)
+
+* Fix parsing xcode logs for analyzer rules for target names with
+  spaces.  
+  [JP Simard](https://github.com/jpsim)
+  [#3021](https://github.com/realm/SwiftLint/issues/3021)
+
+## 0.42.0: He Chutes, He Scores
+
+#### Breaking
+
 * SwiftLint now requires Swift 5.2 or higher to build.  
   [JP Simard](https://github.com/jpsim)
 

@@ -3,6 +3,8 @@ import SourceKittenFramework
 @testable import SwiftLintFramework
 import XCTest
 
+// swiftlint:disable file_length type_body_length
+
 private let optInRules = primaryRuleList.list.filter({ $0.1.init() is OptInRule }).map({ $0.0 })
 
 class ConfigurationTests: XCTestCase {
@@ -86,6 +88,26 @@ class ConfigurationTests: XCTestCase {
         XCTAssertEqual(only, configuredIdentifiers)
     }
 
+    func testOnlyRulesWithCustomRules() {
+        // All custom rules from a config file should be active if the `custom_rules` is included in the `only_rules`
+        // As the behavior is different for custom rules from parent configs, this test is helpful
+        let only = ["custom_rules"]
+        let customRuleIdentifier = "my_custom_rule"
+        let customRules = [customRuleIdentifier: ["name": "A name for this custom rule", "regex": "this is illegal"]]
+
+        // swiftlint:disable:next force_try
+        let config = try! Configuration(dict: ["only_rules": only, "custom_rules": customRules])
+        guard let resultingCustomRules = config.rules.first(where: { $0 is CustomRules }) as? CustomRules
+            else {
+            return XCTFail("Custom rules are expected to be present")
+        }
+        XCTAssertTrue(
+            resultingCustomRules.configuration.customRuleConfigurations.contains {
+                $0.identifier == customRuleIdentifier
+            }
+        )
+    }
+
     func testWarningThreshold_value() {
         // swiftlint:disable:next force_try
         let config = try! Configuration(dict: ["warning_threshold": 5])
@@ -166,6 +188,40 @@ class ConfigurationTests: XCTestCase {
             duplicateConfig3?.rulesWrapper.disabledRuleIdentifiers.count, 1,
             "duplicate rules should be removed when initializing Configuration"
         )
+    }
+
+    func testIncludedExcludedRelativeLocationLevel1() {
+        FileManager.default.changeCurrentDirectoryPath(Mock.Dir.level1)
+
+        // The included path "File.swift" should be put relative to the configuration file
+        // (~> Resources/ProjectMock/File.swift) and not relative to the path where
+        // SwiftLint is run from (~> Resources/ProjectMock/Level1/File.swift)
+        let configuration = Configuration(configurationFiles: ["../custom_included_excluded.yml"])
+        let actualIncludedPath = configuration.includedPaths.first!.bridge()
+            .absolutePathRepresentation(rootDirectory: configuration.rootDirectory)
+        let desiredIncludedPath = "File1.swift".absolutePathRepresentation(rootDirectory: Mock.Dir.level0)
+        let actualExcludedPath = configuration.excludedPaths.first!.bridge()
+            .absolutePathRepresentation(rootDirectory: configuration.rootDirectory)
+        let desiredExcludedPath = "File2.swift".absolutePathRepresentation(rootDirectory: Mock.Dir.level0)
+
+        XCTAssertEqual(actualIncludedPath, desiredIncludedPath)
+        XCTAssertEqual(actualExcludedPath, desiredExcludedPath)
+    }
+
+    func testIncludedExcludedRelativeLocationLevel0() {
+        // Same as testIncludedPathRelatedToConfigurationFileLocationLevel1(),
+        // but run from the directory the config file resides in
+        FileManager.default.changeCurrentDirectoryPath(Mock.Dir.level0)
+        let configuration = Configuration(configurationFiles: ["custom_included_excluded.yml"])
+        let actualIncludedPath = configuration.includedPaths.first!.bridge()
+            .absolutePathRepresentation(rootDirectory: configuration.rootDirectory)
+        let desiredIncludedPath = "File1.swift".absolutePathRepresentation(rootDirectory: Mock.Dir.level0)
+        let actualExcludedPath = configuration.excludedPaths.first!.bridge()
+            .absolutePathRepresentation(rootDirectory: configuration.rootDirectory)
+        let desiredExcludedPath = "File2.swift".absolutePathRepresentation(rootDirectory: Mock.Dir.level0)
+
+        XCTAssertEqual(actualIncludedPath, desiredIncludedPath)
+        XCTAssertEqual(actualExcludedPath, desiredExcludedPath)
     }
 
     private class TestFileManager: LintableFileManager {
@@ -259,7 +315,7 @@ class ConfigurationTests: XCTestCase {
     func testCustomConfiguration() {
         let file = SwiftLintFile(path: Mock.Swift._0)!
         XCTAssertNotEqual(Mock.Config._0.configuration(for: file),
-                          Mock.Config._0CustomPath.configuration(for: file))
+                          Mock.Config._0Custom.configuration(for: file))
     }
 
     func testConfigurationWithSwiftFileAsRoot() {
@@ -270,7 +326,7 @@ class ConfigurationTests: XCTestCase {
     }
 
     func testConfigurationWithSwiftFileAsRootAndCustomConfiguration() {
-        let configuration = Configuration(configurationFiles: [Mock.Yml._0CustomPath])
+        let configuration = Mock.Config._0Custom
 
         let file = SwiftLintFile(path: Mock.Swift._0)!
         XCTAssertEqual(configuration.configuration(for: file), configuration)

@@ -1,6 +1,5 @@
-// Generated using Sourcery 1.0.2 — https://github.com/krzysztofzablocki/Sourcery
+// Generated using Sourcery 1.2.0 — https://github.com/krzysztofzablocki/Sourcery
 // DO NOT EDIT
-
 @testable import SwiftLintFrameworkTests
 import XCTest
 
@@ -34,8 +33,20 @@ extension AttributesRuleTests {
     ]
 }
 
+extension BalancedXCTestLifecycleRuleTests {
+    static var allTests: [(String, (BalancedXCTestLifecycleRuleTests) -> () throws -> Void)] = [
+        ("testWithDefaultConfiguration", testWithDefaultConfiguration)
+    ]
+}
+
 extension BlockBasedKVORuleTests {
     static var allTests: [(String, (BlockBasedKVORuleTests) -> () throws -> Void)] = [
+        ("testWithDefaultConfiguration", testWithDefaultConfiguration)
+    ]
+}
+
+extension CaptureVariableRuleTests {
+    static var allTests: [(String, (CaptureVariableRuleTests) -> () throws -> Void)] = [
         ("testWithDefaultConfiguration", testWithDefaultConfiguration)
     ]
 }
@@ -185,12 +196,15 @@ extension ConfigurationTests {
         ("testInitWithRelativePathAndRootPath", testInitWithRelativePathAndRootPath),
         ("testEnableAllRulesConfiguration", testEnableAllRulesConfiguration),
         ("testOnlyRules", testOnlyRules),
+        ("testOnlyRulesWithCustomRules", testOnlyRulesWithCustomRules),
         ("testWarningThreshold_value", testWarningThreshold_value),
         ("testWarningThreshold_nil", testWarningThreshold_nil),
         ("testOtherRuleConfigurationsAlongsideOnlyRules", testOtherRuleConfigurationsAlongsideOnlyRules),
         ("testDisabledRules", testDisabledRules),
         ("testDisabledRulesWithUnknownRule", testDisabledRulesWithUnknownRule),
         ("testDuplicatedRules", testDuplicatedRules),
+        ("testIncludedExcludedRelativeLocationLevel1", testIncludedExcludedRelativeLocationLevel1),
+        ("testIncludedExcludedRelativeLocationLevel0", testIncludedExcludedRelativeLocationLevel0),
         ("testExcludedPaths", testExcludedPaths),
         ("testForceExcludesFile", testForceExcludesFile),
         ("testForceExcludesFileNotPresentInExcluded", testForceExcludesFileNotPresentInExcluded),
@@ -220,6 +234,9 @@ extension ConfigurationTests {
         ("testOnlyRulesMerging", testOnlyRulesMerging),
         ("testCustomRulesMerging", testCustomRulesMerging),
         ("testMergingAllowsDisablingParentsCustomRules", testMergingAllowsDisablingParentsCustomRules),
+        ("testCustomRulesMergingWithOnlyRulesCase1", testCustomRulesMergingWithOnlyRulesCase1),
+        ("testCustomRulesMergingWithOnlyRulesCase2", testCustomRulesMergingWithOnlyRulesCase2),
+        ("testCustomRulesReconfiguration", testCustomRulesReconfiguration),
         ("testLevel0", testLevel0),
         ("testLevel1", testLevel1),
         ("testLevel2", testLevel2),
@@ -342,6 +359,12 @@ extension DisableAllTests {
 
 extension DiscardedNotificationCenterObserverRuleTests {
     static var allTests: [(String, (DiscardedNotificationCenterObserverRuleTests) -> () throws -> Void)] = [
+        ("testWithDefaultConfiguration", testWithDefaultConfiguration)
+    ]
+}
+
+extension DiscouragedAssertRuleTests {
+    static var allTests: [(String, (DiscouragedAssertRuleTests) -> () throws -> Void)] = [
         ("testWithDefaultConfiguration", testWithDefaultConfiguration)
     ]
 }
@@ -852,6 +875,12 @@ extension LegacyNSGeometryFunctionsRuleTests {
     ]
 }
 
+extension LegacyObjcTypeRuleTests {
+    static var allTests: [(String, (LegacyObjcTypeRuleTests) -> () throws -> Void)] = [
+        ("testWithDefaultConfiguration", testWithDefaultConfiguration)
+    ]
+}
+
 extension LegacyRandomRuleTests {
     static var allTests: [(String, (LegacyRandomRuleTests) -> () throws -> Void)] = [
         ("testWithDefaultConfiguration", testWithDefaultConfiguration)
@@ -1180,6 +1209,12 @@ extension PrivateOverFilePrivateRuleTests {
         ("testPrivateOverFilePrivateWithDefaultConfiguration", testPrivateOverFilePrivateWithDefaultConfiguration),
         ("testPrivateOverFilePrivateValidatingExtensions", testPrivateOverFilePrivateValidatingExtensions),
         ("testPrivateOverFilePrivateNotValidatingExtensions", testPrivateOverFilePrivateNotValidatingExtensions)
+    ]
+}
+
+extension PrivateSubjectRuleTests {
+    static var allTests: [(String, (PrivateSubjectRuleTests) -> () throws -> Void)] = [
+        ("testWithDefaultConfiguration", testWithDefaultConfiguration)
     ]
 }
 
@@ -1773,7 +1808,9 @@ XCTMain([
     testCase(AnyObjectProtocolRuleTests.allTests),
     testCase(ArrayInitRuleTests.allTests),
     testCase(AttributesRuleTests.allTests),
+    testCase(BalancedXCTestLifecycleRuleTests.allTests),
     testCase(BlockBasedKVORuleTests.allTests),
+    testCase(CaptureVariableRuleTests.allTests),
     testCase(ClassDelegateProtocolRuleTests.allTests),
     testCase(ClosingBraceRuleTests.allTests),
     testCase(ClosureBodyLengthRuleTests.allTests),
@@ -1804,6 +1841,7 @@ XCTMain([
     testCase(DeploymentTargetRuleTests.allTests),
     testCase(DisableAllTests.allTests),
     testCase(DiscardedNotificationCenterObserverRuleTests.allTests),
+    testCase(DiscouragedAssertRuleTests.allTests),
     testCase(DiscouragedDirectInitRuleTests.allTests),
     testCase(DiscouragedObjectLiteralRuleTests.allTests),
     testCase(DiscouragedOptionalBooleanRuleTests.allTests),
@@ -1871,6 +1909,7 @@ XCTMain([
     testCase(LegacyHashingRuleTests.allTests),
     testCase(LegacyMultipleRuleTests.allTests),
     testCase(LegacyNSGeometryFunctionsRuleTests.allTests),
+    testCase(LegacyObjcTypeRuleTests.allTests),
     testCase(LegacyRandomRuleTests.allTests),
     testCase(LetVarWhitespaceRuleTests.allTests),
     testCase(LineEndingTests.allTests),
@@ -1916,6 +1955,7 @@ XCTMain([
     testCase(PrivateActionRuleTests.allTests),
     testCase(PrivateOutletRuleTests.allTests),
     testCase(PrivateOverFilePrivateRuleTests.allTests),
+    testCase(PrivateSubjectRuleTests.allTests),
     testCase(PrivateUnitTestRuleTests.allTests),
     testCase(ProhibitedInterfaceBuilderRuleTests.allTests),
     testCase(ProhibitedSuperRuleTests.allTests),

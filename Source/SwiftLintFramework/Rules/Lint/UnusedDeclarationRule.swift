@@ -16,7 +16,11 @@ public struct UnusedDeclarationRule: AutomaticTestableRule, ConfigurationProvide
 
     public typealias FileInfo = FileUSRs
 
-    public var configuration = UnusedDeclarationConfiguration(severity: .error, includePublicAndOpen: false)
+    public var configuration = UnusedDeclarationConfiguration(
+        severity: .error,
+        includePublicAndOpen: false,
+        relatedUSRsToSkip: ["s:7SwiftUI15PreviewProviderP"]
+    )
 
     public init() {}
 
@@ -61,7 +65,7 @@ public struct UnusedDeclarationRule: AutomaticTestableRule, ConfigurationProvide
             declared: file.declaredUSRs(index: index,
                                         editorOpen: editorOpen,
                                         compilerArguments: compilerArguments,
-                                        includePublicAndOpen: configuration.includePublicAndOpen)
+                                        configuration: configuration)
         )
     }
 
@@ -101,7 +105,7 @@ private extension SwiftLintFile {
     }
 
     func referencedUSRs(index: SourceKittenDictionary) -> Set<String> {
-        return Set(index.traverseEntities { entity -> String? in
+        return Set(index.traverseEntitiesDepthFirst { entity -> String? in
             if let usr = entity.usr,
                 let kind = entity.kind,
                 kind.starts(with: "source.lang.swift.ref") {
@@ -113,16 +117,17 @@ private extension SwiftLintFile {
     }
 
     func declaredUSRs(index: SourceKittenDictionary, editorOpen: SourceKittenDictionary,
-                      compilerArguments: [String], includePublicAndOpen: Bool)
-        -> Set<UnusedDeclarationRule.DeclaredUSR> {
-        return Set(index.traverseEntities { indexEntity in
+                      compilerArguments: [String], configuration: UnusedDeclarationConfiguration)
+    -> Set<UnusedDeclarationRule.DeclaredUSR> {
+        return Set(index.traverseEntitiesDepthFirst { indexEntity in
             self.declaredUSR(indexEntity: indexEntity, editorOpen: editorOpen, compilerArguments: compilerArguments,
-                             includePublicAndOpen: includePublicAndOpen)
+                             configuration: configuration)
         })
     }
 
     func declaredUSR(indexEntity: SourceKittenDictionary, editorOpen: SourceKittenDictionary,
-                     compilerArguments: [String], includePublicAndOpen: Bool) -> UnusedDeclarationRule.DeclaredUSR? {
+                     compilerArguments: [String], configuration: UnusedDeclarationConfiguration)
+    -> UnusedDeclarationRule.DeclaredUSR? {
         guard let stringKind = indexEntity.kind,
               stringKind.starts(with: "source.lang.swift.decl."),
               !stringKind.contains(".accessor."),
@@ -135,27 +140,27 @@ private extension SwiftLintFile {
             return nil
         }
 
-        if shouldIgnoreEntity(indexEntity) {
+        if shouldIgnoreEntity(indexEntity, relatedUSRsToSkip: configuration.relatedUSRsToSkip) {
             return nil
         }
 
         let nameOffset = stringView.byteOffset(forLine: line, column: column)
 
-        if !includePublicAndOpen, [.public, .open].contains(editorOpen.aclAtOffset(nameOffset)) {
+        if !configuration.includePublicAndOpen, [.public, .open].contains(editorOpen.aclAtOffset(nameOffset)) {
             return nil
         }
 
         // Skip CodingKeys as they are used for Codable generation
         if kind == .enum,
             indexEntity.name == "CodingKeys",
-            case let allRelatedUSRs = indexEntity.traverseEntities(traverseBlock: { $0.usr }),
+            case let allRelatedUSRs = indexEntity.traverseEntitiesDepthFirst(traverseBlock: { $0.usr }),
             allRelatedUSRs.contains("s:s9CodingKeyP") {
             return nil
         }
 
         // Skip `static var allTests` members since those are used for Linux test discovery.
         if kind == .varStatic, indexEntity.name == "allTests" {
-            let allTestCandidates = indexEntity.traverseEntities { subEntity -> Bool in
+            let allTestCandidates = indexEntity.traverseEntitiesDepthFirst { subEntity -> Bool in
                 subEntity.value["key.is_test_candidate"] as? Bool == true
             }
 
@@ -166,8 +171,7 @@ private extension SwiftLintFile {
 
         let cursorInfo = self.cursorInfo(at: nameOffset, compilerArguments: compilerArguments)
 
-        if let annotatedDecl = cursorInfo?.annotatedDeclaration,
-            ["@IBAction", "@objc"].contains(where: annotatedDecl.contains) {
+        if cursorInfo?.annotatedDeclaration?.contains("@objc ") == true {
             return nil
         }
 
@@ -193,12 +197,13 @@ private extension SwiftLintFile {
         return (try? request.sendIfNotDisabled()).map(SourceKittenDictionary.init)
     }
 
-    private func shouldIgnoreEntity(_ indexEntity: SourceKittenDictionary) -> Bool {
+    private func shouldIgnoreEntity(_ indexEntity: SourceKittenDictionary, relatedUSRsToSkip: Set<String>) -> Bool {
         if indexEntity.shouldSkipIndexEntityToWorkAroundSR11985() ||
-            indexEntity.isIndexEntitySwiftUIProvider() ||
+            indexEntity.shouldSkipRelated(relatedUSRsToSkip: relatedUSRsToSkip) ||
             indexEntity.enclosedSwiftAttributes.contains(where: declarationAttributesToSkip.contains) ||
             indexEntity.isImplicit ||
-            indexEntity.value["key.is_test_candidate"] as? Bool == true {
+            indexEntity.value["key.is_test_candidate"] as? Bool == true ||
+            indexEntity.shouldSkipResultBuilder() {
             return true
         }
 
@@ -250,10 +255,10 @@ private extension SourceKittenDictionary {
         return nil
     }
 
-    func isIndexEntitySwiftUIProvider() -> Bool {
+    func shouldSkipRelated(relatedUSRsToSkip: Set<String>) -> Bool {
         return (value["key.related"] as? [[String: SourceKitRepresentable]])?
-            .map(SourceKittenDictionary.init)
-            .contains(where: { $0.usr == "s:7SwiftUI15PreviewProviderP" }) == true
+            .compactMap { SourceKittenDictionary($0).usr }
+            .contains(where: relatedUSRsToSkip.contains) == true
     }
 
     func shouldSkipIndexEntityToWorkAroundSR11985() -> Bool {
@@ -279,6 +284,26 @@ private extension SourceKittenDictionary {
 
         return functionsToSkipForSR11985.contains(name)
     }
+
+    func shouldSkipResultBuilder() -> Bool {
+        guard let name = name, declarationKind == .functionMethodStatic else {
+            return false
+        }
+
+        // https://github.com/apple/swift-evolution/blob/main/proposals/0289-result-builders.md#result-building-methods
+        let resultBuilderStaticMethods = [
+            "buildBlock(_:)",
+            "buildIf(_:)",
+            "buildOptional(_:)",
+            "buildEither(_:)",
+            "buildArray(_:)",
+            "buildExpression(_:)",
+            "buildFinalResult(_:)",
+            "buildLimitedAvailability(_:)"
+        ]
+
+        return resultBuilderStaticMethods.contains(name)
+    }
 }
 
 // Skip initializers, deinit, enum cases and subscripts since we can't reliably detect if they're used.
@@ -302,25 +327,6 @@ private let declarationAttributesToSkip: Set<SwiftDeclarationAttributeKind> = [
     .override,
     .uiApplicationMain
 ]
-
-private extension SourceKittenDictionary {
-    func traverseEntities<T>(traverseBlock: (SourceKittenDictionary) -> T?) -> [T] {
-        var result: [T] = []
-        traverseEntitiesDepthFirst(collectingValuesInto: &result, traverseBlock: traverseBlock)
-        return result
-    }
-
-    private func traverseEntitiesDepthFirst<T>(collectingValuesInto array: inout [T],
-                                               traverseBlock: (SourceKittenDictionary) -> T?) {
-        entities.forEach { subDict in
-            subDict.traverseEntitiesDepthFirst(collectingValuesInto: &array, traverseBlock: traverseBlock)
-
-            if let collectedValue = traverseBlock(subDict) {
-                array.append(collectedValue)
-            }
-        }
-    }
-}
 
 private extension StringView {
     func byteOffset(forLine line: Int, column: Int) -> ByteCount {

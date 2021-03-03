@@ -1,10 +1,18 @@
-import Commandant
 import Dispatch
 import Foundation
 import SwiftLintFramework
 
 enum LintOrAnalyzeMode {
     case lint, analyze
+
+    var imperative: String {
+        switch self {
+        case .lint:
+            return "lint"
+        case .analyze:
+            return "analyze"
+        }
+    }
 
     var verb: String {
         switch self {
@@ -17,51 +25,70 @@ enum LintOrAnalyzeMode {
 }
 
 struct LintOrAnalyzeCommand {
-    static func run(_ options: LintOrAnalyzeOptions) -> Result<(), CommandantError<()>> {
-        var fileBenchmark = Benchmark(name: "files")
-        var ruleBenchmark = Benchmark(name: "rules")
-        var violations = [StyleViolation]()
-        let storage = RuleStorage()
-        let configuration = Configuration(options: options)
-        let reporter = reporterFrom(optionsReporter: options.reporter, configuration: configuration)
-        let cache = options.ignoreCache ? nil : LinterCache(configuration: configuration)
+    static func run(_ options: LintOrAnalyzeOptions) -> Result<(), SwiftLintError> {
+        return Signposts.record(name: "LintOrAnalyzeCommand.run") {
+            options.autocorrect ? autocorrect(options) : lintOrAnalyze(options)
+        }
+    }
+
+    private static func lintOrAnalyze(_ options: LintOrAnalyzeOptions) -> Result<(), SwiftLintError> {
+        let builder = LintOrAnalyzeResultBuilder(options)
+        return collectViolations(builder: builder)
+            .flatMap { postProcessViolations(files: $0, builder: builder) }
+    }
+
+    private static func collectViolations(builder: LintOrAnalyzeResultBuilder)
+        -> Result<[SwiftLintFile], SwiftLintError> {
+        let options = builder.options
         let visitorMutationQueue = DispatchQueue(label: "io.realm.swiftlint.lintVisitorMutation")
-        return configuration.visitLintableFiles(options: options, cache: cache, storage: storage) { linter in
+        return builder.configuration.visitLintableFiles(options: options, cache: builder.cache,
+                                                        storage: builder.storage) { linter in
             let currentViolations: [StyleViolation]
             if options.benchmark {
                 let start = Date()
-                let (violationsBeforeLeniency, currentRuleTimes) = linter.styleViolationsAndRuleTimes(using: storage)
+                let (violationsBeforeLeniency, currentRuleTimes) = linter
+                    .styleViolationsAndRuleTimes(using: builder.storage)
                 currentViolations = applyLeniency(options: options, violations: violationsBeforeLeniency)
                 visitorMutationQueue.sync {
-                    fileBenchmark.record(file: linter.file, from: start)
-                    currentRuleTimes.forEach { ruleBenchmark.record(id: $0, time: $1) }
-                    violations += currentViolations
+                    builder.fileBenchmark.record(file: linter.file, from: start)
+                    currentRuleTimes.forEach { builder.ruleBenchmark.record(id: $0, time: $1) }
+                    builder.violations += currentViolations
                 }
             } else {
-                currentViolations = applyLeniency(options: options, violations: linter.styleViolations(using: storage))
+                currentViolations = applyLeniency(options: options,
+                                                  violations: linter.styleViolations(using: builder.storage))
                 visitorMutationQueue.sync {
-                    violations += currentViolations
+                    builder.violations += currentViolations
                 }
             }
             linter.file.invalidateCache()
-            reporter.report(violations: currentViolations, realtimeCondition: true)
-        }.flatMap { files in
-            if isWarningThresholdBroken(configuration: configuration, violations: violations)
+            builder.reporter.report(violations: currentViolations, realtimeCondition: true)
+        }
+    }
+
+    private static func postProcessViolations(files: [SwiftLintFile], builder: LintOrAnalyzeResultBuilder)
+        -> Result<(), SwiftLintError> {
+        return Signposts.record(name: "LintOrAnalyzeCommand.PostProcessViolations") {
+            let options = builder.options
+            let configuration = builder.configuration
+            if isWarningThresholdBroken(configuration: configuration, violations: builder.violations)
                 && !options.lenient {
-                violations.append(createThresholdViolation(threshold: configuration.warningThreshold!))
-                reporter.report(violations: [violations.last!], realtimeCondition: true)
+                builder.violations.append(
+                    createThresholdViolation(threshold: configuration.warningThreshold!)
+                )
+                builder.reporter.report(violations: [builder.violations.last!], realtimeCondition: true)
             }
-            reporter.report(violations: violations, realtimeCondition: false)
-            let numberOfSeriousViolations = violations.filter({ $0.severity == .error }).count
+            builder.reporter.report(violations: builder.violations, realtimeCondition: false)
+            let numberOfSeriousViolations = builder.violations.filter({ $0.severity == .error }).count
             if !options.quiet {
-                printStatus(violations: violations, files: files, serious: numberOfSeriousViolations,
+                printStatus(violations: builder.violations, files: files, serious: numberOfSeriousViolations,
                             verb: options.verb)
             }
             if options.benchmark {
-                fileBenchmark.save()
-                ruleBenchmark.save()
+                builder.fileBenchmark.save()
+                builder.ruleBenchmark.save()
             }
-            try? cache?.save()
+            try? builder.cache?.save()
             guard numberOfSeriousViolations == 0 else { exit(2) }
             return .success(())
         }
@@ -125,6 +152,26 @@ struct LintOrAnalyzeCommand {
             queuedFatalError("Invalid command line options: 'lenient' and 'strict' are mutually exclusive.")
         }
     }
+
+    private static func autocorrect(_ options: LintOrAnalyzeOptions) -> Result<(), SwiftLintError> {
+        let storage = RuleStorage()
+        let configuration = Configuration(options: options)
+        return configuration.visitLintableFiles(options: options, cache: nil, storage: storage) { linter in
+            let corrections = linter.correct(using: storage)
+            if !corrections.isEmpty && !options.quiet {
+                let correctionLogs = corrections.map({ $0.consoleDescription })
+                queuedPrint(correctionLogs.joined(separator: "\n"))
+            }
+        }.flatMap { files in
+            if !options.quiet {
+                let pluralSuffix = { (collection: [Any]) -> String in
+                    return collection.count != 1 ? "s" : ""
+                }
+                queuedPrintError("Done inspecting \(files.count) file\(pluralSuffix(files)) for auto-correction!")
+            }
+            return .success(())
+        }
+    }
 }
 
 struct LintOrAnalyzeOptions {
@@ -138,56 +185,14 @@ struct LintOrAnalyzeOptions {
     let useExcludingByPrefix: Bool
     let useScriptInputFiles: Bool
     let benchmark: Bool
-    let reporter: String
+    let reporter: String?
     let quiet: Bool
-    let cachePath: String
+    let cachePath: String?
     let ignoreCache: Bool
     let enableAllRules: Bool
     let autocorrect: Bool
-    let compilerLogPath: String
-    let compileCommands: String
-
-    init(_ options: LintOptions) {
-        mode = .lint
-        paths = options.paths
-        useSTDIN = options.useSTDIN
-        configurationFiles = options.configurationFiles
-        strict = options.strict
-        lenient = options.lenient
-        forceExclude = options.forceExclude
-        useExcludingByPrefix = options.excludeByPrefix
-        useScriptInputFiles = options.useScriptInputFiles
-        benchmark = options.benchmark
-        reporter = options.reporter
-        quiet = options.quiet
-        cachePath = options.cachePath
-        ignoreCache = options.ignoreCache
-        enableAllRules = options.enableAllRules
-        autocorrect = false
-        compilerLogPath = ""
-        compileCommands = ""
-    }
-
-    init(_ options: AnalyzeOptions) {
-        mode = .analyze
-        paths = options.paths
-        useSTDIN = false
-        configurationFiles = options.configurationFiles
-        strict = options.strict
-        lenient = options.lenient
-        forceExclude = options.forceExclude
-        useExcludingByPrefix = options.excludeByPrefix
-        useScriptInputFiles = options.useScriptInputFiles
-        benchmark = options.benchmark
-        reporter = options.reporter
-        quiet = options.quiet
-        cachePath = ""
-        ignoreCache = true
-        enableAllRules = options.enableAllRules
-        autocorrect = options.autocorrect
-        compilerLogPath = options.compilerLogPath
-        compileCommands = options.compileCommands
-    }
+    let compilerLogPath: String?
+    let compileCommands: String?
 
     var verb: String {
         if autocorrect {
@@ -195,5 +200,26 @@ struct LintOrAnalyzeOptions {
         } else {
             return mode.verb
         }
+    }
+}
+
+private class LintOrAnalyzeResultBuilder {
+    var fileBenchmark = Benchmark(name: "files")
+    var ruleBenchmark = Benchmark(name: "rules")
+    var violations = [StyleViolation]()
+    let storage = RuleStorage()
+    let configuration: Configuration
+    let reporter: Reporter.Type
+    let cache: LinterCache?
+    let options: LintOrAnalyzeOptions
+
+    init(_ options: LintOrAnalyzeOptions) {
+        let config = Signposts.record(name: "LintOrAnalyzeCommand.ParseConfiguration") {
+            Configuration(options: options)
+        }
+        configuration = config
+        reporter = reporterFrom(optionsReporter: options.reporter, configuration: config)
+        cache = options.ignoreCache ? nil : LinterCache(configuration: config)
+        self.options = options
     }
 }

@@ -1,6 +1,5 @@
-// Generated using Sourcery 1.0.2 — https://github.com/krzysztofzablocki/Sourcery
+// Generated using Sourcery 1.2.0 — https://github.com/krzysztofzablocki/Sourcery
 // DO NOT EDIT
-
 import SwiftLintFramework
 import XCTest
 
@@ -18,9 +17,21 @@ class ArrayInitRuleTests: XCTestCase {
     }
 }
 
+class BalancedXCTestLifecycleRuleTests: XCTestCase {
+    func testWithDefaultConfiguration() {
+        verifyRule(BalancedXCTestLifecycleRule.description)
+    }
+}
+
 class BlockBasedKVORuleTests: XCTestCase {
     func testWithDefaultConfiguration() {
         verifyRule(BlockBasedKVORule.description)
+    }
+}
+
+class CaptureVariableRuleTests: XCTestCase {
+    func testWithDefaultConfiguration() {
+        verifyRule(CaptureVariableRule.description)
     }
 }
 
@@ -105,6 +116,12 @@ class ConvenienceTypeRuleTests: XCTestCase {
 class DiscardedNotificationCenterObserverRuleTests: XCTestCase {
     func testWithDefaultConfiguration() {
         verifyRule(DiscardedNotificationCenterObserverRule.description)
+    }
+}
+
+class DiscouragedAssertRuleTests: XCTestCase {
+    func testWithDefaultConfiguration() {
+        verifyRule(DiscouragedAssertRule.description)
     }
 }
 
@@ -354,6 +371,12 @@ class LegacyNSGeometryFunctionsRuleTests: XCTestCase {
     }
 }
 
+class LegacyObjcTypeRuleTests: XCTestCase {
+    func testWithDefaultConfiguration() {
+        verifyRule(LegacyObjcTypeRule.description)
+    }
+}
+
 class LegacyRandomRuleTests: XCTestCase {
     func testWithDefaultConfiguration() {
         verifyRule(LegacyRandomRule.description)
@@ -531,6 +554,12 @@ class PreferZeroOverExplicitInitRuleTests: XCTestCase {
 class PrivateActionRuleTests: XCTestCase {
     func testWithDefaultConfiguration() {
         verifyRule(PrivateActionRule.description)
+    }
+}
+
+class PrivateSubjectRuleTests: XCTestCase {
+    func testWithDefaultConfiguration() {
+        verifyRule(PrivateSubjectRule.description)
     }
 }
 
