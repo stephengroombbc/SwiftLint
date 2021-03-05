@@ -163,41 +163,41 @@ private extension SwiftLintFile {
             return indexEntity
     }
     
-    //TODO: WIP Trying to resolve false positives.
-    //      Some progress was made in realising that typealiases are only referenced as source.lang.swift.ref with no child entities.
-    //      It's not possible to get their access control though so the guard [.public, .open] fails before any special cases can be hit.
-    //      I think this means we need to traverse depth first (perhaps via recursion), being more intelligent to determine what is public and collecting any USRs on our way down.
-    //      This will probably be more efficient too.
-    //      Something like: Start at top level.  If it's private/internal, abort.  If it's got children, continue and report everything mentioned inside a protocol, only things explititly named as public within classes and structs
     private func removeExternallyExposedPublicTypes(from declarations: Set<UnusedPublicRule.DeclaredUSR>, index: SourceKittenDictionary, editorOpen: SourceKittenDictionary) -> Set<UnusedPublicRule.DeclaredUSR> {
-        var declarations = declarations
-        //Filter out public types which are referenced by another public declaration
-        _ = index.traverseEntities { indexEntity in
-            print(indexEntity.usr ?? "")
-            guard let line = indexEntity.line.map(Int.init),
-                  let column = indexEntity.column.map(Int.init),
-                  let access = editorOpen.aclAtOffset(stringView.byteOffset(forLine: line, column: column)),
-                  [.public, .open].contains(access) else { return }
-            var referencedUSRs: [String?] = []
-            
-            //References don't have child entities.  Add their USRs directly
-            if let kind = indexEntity.kind,
-               kind.starts(with: "source.lang.swift.ref"),
-               let usr = indexEntity.usr {
-                referencedUSRs.append(usr)
-            } else { //Otherwise add the usrs from the entities array
-                let types: [SwiftDeclarationKind] = [.protocol, .struct, .class, .enum, .typealias]
-                let entities = indexEntity.entities
-                entities.forEach { relatedEntity in
-                    guard let kind = relatedEntity.declarationKind,
-                          types.contains(kind) else { return }
-                    referencedUSRs.append(relatedEntity.usr)
-                }
-            }
-            
-            declarations = declarations.filter { !referencedUSRs.contains($0.usr) }
+        let exposedUSRs = index.entities.flatMap { externallyExposedPublicUSRs(in: $0, editorOpen: editorOpen) }
+        return declarations.filter { !exposedUSRs.contains($0.usr) }
+    }
+    
+    private func externallyExposedPublicUSRs(in index: SourceKittenDictionary, editorOpen: SourceKittenDictionary) -> [String] {
+        guard isPublicOrOpen(indexEntity: index, editorOpen: editorOpen) else {
+            return []
         }
-        return declarations
+        switch index.declarationKind {
+        //Everything in a public protocol is exposed externally
+        //Everything in a public function or var is exposed externally
+        case .protocol,
+             .functionMethodClass, .functionMethodStatic, .functionMethodInstance, .varClass, .varInstance:
+            return index.traverseEntitiesDepthFirst(traverseBlock: { return isReference($0) ? $0.usr : nil })
+        default:
+            if isReference(index),
+               let usr = index.usr {
+                return [usr]
+            }
+            return index.entities.flatMap { externallyExposedPublicUSRs(in: $0, editorOpen: editorOpen)}
+        }
+    }
+    
+    private func isReference(_ entity: SourceKittenDictionary) -> Bool {
+        guard let kind = entity.kind else { return false }
+        return kind.starts(with: "source.lang.swift.ref")
+    }
+    
+    private func isPublicOrOpen(indexEntity: SourceKittenDictionary, editorOpen: SourceKittenDictionary) -> Bool {
+        guard let line = indexEntity.line.map(Int.init),
+              let column = indexEntity.column.map(Int.init),
+              let access = editorOpen.aclAtOffset(stringView.byteOffset(forLine: line, column: column)),
+              [.public, .open].contains(access) else { return false }
+        return true
     }
 
     private func declaredPublicUSR(indexEntity: SourceKittenDictionary, editorOpen: SourceKittenDictionary, publicProtocolsAndClasses: [SourceKittenDictionary],
